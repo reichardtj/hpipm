@@ -53,31 +53,40 @@ travis_run = os.getenv('TRAVIS_RUN')
 
 
 
+x0_elim = True
+#x0_elim = False
+
+
+
 # define flags
 codegen_data = 1; # export qp data in the file ocp_qp_data.c for use from C examples
 
 
 
 # dim
-N = 5
+N = 1
 nx = 2
 nu = 1
 
 nbx = nx
+nbu = nu
 #ng = nx
-#ns = nx
+ns = nx
 
 dim = hpipm_ocp_qp_dim(N)
 
-dim.set('nx', nx, 0, N) # number of states
+if not x0_elim:
+	dim.set('nx', nx, 0)    # number of states
+	dim.set('nbx', nbx, 0)  # number of state bounds
+dim.set('nx', nx, 1, N) # number of states
 dim.set('nu', nu, 0, N-1) # number of inputs
-dim.set('nbx', nbx, 0) # number of state bounds
+dim.set('nbu', nbu, 0, N-1) # number of input bounds
 #dim.set('ng', nx, 0)
 dim.set('nbx', nbx, N)
-#dim.set('ns', nx, N)
+dim.set('nsbx', ns, N)
 
 # print to shell
-#dim.print_C_struct()
+dim.print_C_struct()
 # codegen
 if codegen_data:
 	dim.codegen('ocp_qp_data.c', 'w')
@@ -95,50 +104,77 @@ else:
 	A[0][1] = 1.0
 	A[1][1] = 1.0
 B = np.array([0, 1]).reshape(nx,nu)
-#b = np.array([0, 0]).reshape(nx,1)
+b = np.array([0, 0]).reshape(nx,1)
 
 Q = np.array([1, 0, 0, 1]).reshape(nx,nx)
 S = np.array([0, 0]).reshape(nu,nx)
 R = np.array([1]).reshape(nu,nu)
-q = np.array([1, 1]).reshape(nx,1)
+#q = np.array([1, 1]).reshape(nx,1)
 #r = np.array([0]).reshape(nu,1)
 
 Jx = np.array([1, 0, 0, 1]).reshape(nbx,nx)
 x0 = np.array([1, 1]).reshape(nx,1)
-#Jsx = np.array([1, 0, 0, 1]).reshape(nbx,ns)
-#Zl = np.array([1e5, 1e5]).reshape(ns,1)
-#Zu = np.array([1e5, 1e5]).reshape(ns,1)
-#zl = np.array([1e5, 1e5]).reshape(ns,1)
-#zu = np.array([1e5, 1e5]).reshape(ns,1)
+xN = np.array([0, 0]).reshape(nx,1)
+if x0_elim:
+	b0 = A @ x0 + b
+
+Jsx = np.array([1, 0, 0, 1]).reshape(nbx,ns)
+Zl = 0 * np.array([1e2, 1e2]).reshape(ns,1)
+Zu = 0 * np.array([1e2, 1e2]).reshape(ns,1)
+zl = 1 * np.array([1e2, 1e2]).reshape(ns,1)
+zu = 1 * np.array([1e2, 1e2]).reshape(ns,1)
+
+Ju = np.array([1]).reshape(nbu,nu)
+lbu = np.array([-1.0]).reshape(nbu,1)
+ubu = np.array([1.0]).reshape(nbu,1)
 
 
 
 # qp
 qp = hpipm_ocp_qp(dim)
 
-qp.set('A', A, 0, N-1)
 qp.set('B', B, 0, N-1)
-#qp.set('b', [b, b, b, b, b])
-qp.set('Q', Q, 0, N)
-qp.set('S', S, 0, N-1)
+if x0_elim:
+	qp.set('b', b0, 0)
+else:
+	qp.set('A', A, 0)
+	qp.set('b', b, 0)
+qp.set('A', A, 1, N-1)
+qp.set('b', b, 1, N-1)
+
+if not x0_elim:
+	qp.set('Q', Q, 0)
+	qp.set('S', S, 0)
+qp.set('Q', Q, 1, N)
+qp.set('S', S, 1, N-1)
 qp.set('R', R, 0, N-1)
-qp.set('q', q, 0, N)
+#qp.set('q', q, 0, N)
 #qp.set('r', r, 0, N-1)
-qp.set('Jx', Jx, 0)
-qp.set('lx', x0, 0)
-qp.set('ux', x0, 0)
+
+if not x0_elim:
+	qp.set('Jx', Jx, 0)
+	qp.set('lx', x0, 0)
+	qp.set('ux', x0, 0)
+
 #qp.set('C', Jx, 0)
 #qp.set('lg', x0, 0)
 #qp.set('ug', x0, 0)
 qp.set('Jx', Jx, N)
-#qp.set('Jsx', Jsx, N)
-#qp.set('Zl', Zl, N)
-#qp.set('Zu', Zu, N)
-#qp.set('zl', zl, N)
-#qp.set('zu', zu, N)
+qp.set('lx', xN, N)
+qp.set('ux', xN, N)
+
+qp.set('Jsx', Jsx, N)
+qp.set('Zl', Zl, N)
+qp.set('Zu', Zu, N)
+qp.set('zl', zl, N)
+qp.set('zu', zu, N)
+
+qp.set('Ju', Ju, 0, N-1)
+qp.set('lbu', lbu, 0, N-1)
+qp.set('ubu', ubu, 0, N-1)
 
 # print to shell
-#qp.print_C_struct()
+qp.print_C_struct()
 # codegen
 if codegen_data:
 	qp.codegen('ocp_qp_data.c', 'a')
@@ -159,10 +195,10 @@ arg = hpipm_ocp_qp_solver_arg(dim, mode)
 # create and set default arg based on mode
 arg.set('mu0', 1e4)
 arg.set('iter_max', 30)
-arg.set('tol_stat', 1e-4)
-arg.set('tol_eq', 1e-5)
-arg.set('tol_ineq', 1e-5)
-arg.set('tol_comp', 1e-5)
+arg.set('tol_stat', 1e-10)
+arg.set('tol_eq', 1e-10)
+arg.set('tol_ineq', 1e-10)
+arg.set('tol_comp', 1e-10)
 arg.set('reg_prim', 1e-12)
 
 # codegen
@@ -185,20 +221,37 @@ if(travis_run!='true'):
 	qp_sol.print_C_struct()
 
 # extract and print sol
+# inputs
 if(travis_run!='true'):
 	print('u =')
-#u = qp_sol.get_u()
 u = qp_sol.get('u', 0, N)
 for i in range(N+1):
 	if(travis_run!='true'):
 		print(u[i])
 
+# states
 if(travis_run!='true'):
 	print('x =')
 for i in range(N+1):
 	tmp = qp_sol.get('x', i)
 	if(travis_run!='true'):
 		print(tmp)
+
+# slack of lower constraints
+if(travis_run!='true'):
+	print('sl =')
+sl = qp_sol.get('sl', 0, N)
+for i in range(N+1):
+	if(travis_run!='true'):
+		print(sl[i])
+
+# slack of upper constraints
+if(travis_run!='true'):
+	print('su =')
+su = qp_sol.get('su', 0, N)
+for i in range(N+1):
+	if(travis_run!='true'):
+		print(su[i])
 
 
 # get solver statistics
